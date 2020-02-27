@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/minamijoyo/hcledit/editor"
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 )
 
@@ -88,6 +90,8 @@ func newBlockListCmd() *cobra.Command {
 		RunE:  runBlockListCmd,
 	}
 
+	flags := cmd.Flags()
+	flags.StringP("file", "f", "", "A path of input file")
 	return cmd
 }
 
@@ -96,5 +100,24 @@ func runBlockListCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("expected 0 argument, but got %d arguments", len(args))
 	}
 
-	return editor.ListBlock(cmd.InOrStdin(), cmd.OutOrStdout(), "-")
+	filename, err := cmd.Flags().GetString("file")
+	if err != nil {
+		return err
+	}
+
+	fs := afero.NewOsFs()
+	var inStream io.Reader
+	if len(filename) != 0 {
+		file, err := fs.Open(filename)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %s", err)
+		}
+		defer file.Close()
+		inStream = file
+	} else {
+		inStream = cmd.InOrStdin()
+		filename = "-"
+	}
+
+	return editor.ListBlock(inStream, cmd.OutOrStdout(), filename)
 }
