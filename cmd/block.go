@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/minamijoyo/hcledit/editor"
 	"github.com/spf13/afero"
@@ -69,6 +72,9 @@ Arguments:
 		RunE: runBlockMvCmd,
 	}
 
+	flags := cmd.Flags()
+	flags.StringP("file", "f", "", "A path of input file")
+	flags.BoolP("write", "w", false, "Overwrite input file (default: false)")
 	return cmd
 }
 
@@ -80,7 +86,50 @@ func runBlockMvCmd(cmd *cobra.Command, args []string) error {
 	from := args[0]
 	to := args[1]
 
-	return editor.RenameBlock(cmd.InOrStdin(), cmd.OutOrStdout(), "-", from, to)
+	filename, err := cmd.Flags().GetString("file")
+	if err != nil {
+		return err
+	}
+
+	fs := afero.NewOsFs()
+	var inStream io.Reader
+	if len(filename) != 0 {
+		file, err := fs.Open(filename)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %s", err)
+		}
+		defer file.Close()
+		inStream = file
+	} else {
+		inStream = cmd.InOrStdin()
+		filename = "-"
+	}
+
+	write, err := cmd.Flags().GetBool("write")
+	if err != nil {
+		return err
+	}
+	var outStream io.Writer
+	if write {
+		if len(filename) == 0 {
+			return errors.New("when using write option, a file name is requreid")
+		}
+		outStream = new(bytes.Buffer)
+	} else {
+		outStream = cmd.OutOrStdout()
+	}
+	if err := editor.RenameBlock(inStream, outStream, filename, from, to); err != nil {
+		return err
+	}
+	if !write {
+		return nil
+	}
+
+	if err = afero.WriteFile(fs, filename, outStream.(*bytes.Buffer).Bytes(), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to write file: %s", err)
+	}
+
+	return nil
 }
 
 func newBlockListCmd() *cobra.Command {
